@@ -26,15 +26,23 @@ npm install farmhashjs
 ## Usage
 
 ```javascript
-import { fingerprint64, fingerprint32, legacyHash64, legacyHash32 } from 'farmhashjs';
+import { 
+  fingerprint64, fingerprint32,
+  legacyHash64_arm, legacyHash64_x86,
+  legacyHash32_arm, legacyHash32_x86
+} from 'farmhashjs';
 
-// Modern stable fingerprints (recommended)
+// Modern stable fingerprints (recommended - same on all platforms)
 fingerprint64('hello world');  // "6381520714923946011"
 fingerprint32('hello world');  // 430397466
 
 // Legacy hashes (compatible with farmhash@3.3.1)
-legacyHash64('hello world');   // "16022978042064026561"
-legacyHash32('hello world');   // 3602808830
+// Use _arm or _x86 suffix based on your target platform
+legacyHash64_arm('hello world');  // "16022978042064026561"
+legacyHash64_x86('hello world');  // "16022978042064026561" (same for <512 bytes)
+
+legacyHash32_arm('hello world');  // 3314386015
+legacyHash32_x86('hello world');  // 1955099599
 ```
 
 ## API
@@ -53,11 +61,21 @@ These produce stable hashes guaranteed to be consistent across all platforms and
 
 These are compatible with `farmhash@3.3.1` which was compiled with `FARMHASH_DEBUG=1`.
 
+**Important:** The native `farmhash@3.3.1` produces different outputs on ARM64 vs x86_64 architectures. Choose the `_arm` or `_x86` variant based on your target platform.
+
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `legacyHash64(input)` | `string` | 64-bit hash as decimal string |
-| `legacyHash64BigInt(input)` | `bigint` | 64-bit hash as BigInt |
-| `legacyHash32(input)` | `number` | 32-bit hash as number |
+| `legacyHash64_arm(input)` | `string` | 64-bit hash (ARM64) |
+| `legacyHash64_x86(input)` | `string` | 64-bit hash (x86_64, <512 bytes) |
+| `legacyHash64BigInt_arm(input)` | `bigint` | 64-bit hash as BigInt (ARM64) |
+| `legacyHash64BigInt_x86(input)` | `bigint` | 64-bit hash as BigInt (x86_64, <512 bytes) |
+| `legacyHash32_arm(input)` | `number` | 32-bit hash (ARM64) |
+| `legacyHash32_x86(input)` | `number` | 32-bit hash (x86_64, <512 bytes) |
+
+**Notes:**
+- For `hash64`: ARM64 and x86_64 produce the same output for strings <512 bytes. For ≥512 bytes, different algorithms are used.
+- For `hash32`: ARM64 and x86_64 produce different outputs for ALL strings (different algorithms).
+- The x86_64 SIMD algorithm (farmhashte) is fully implemented in pure JavaScript.
 
 ### Aliases
 
@@ -76,8 +94,10 @@ Tested against native implementations:
 |----------|------------------|
 | `fingerprint64` | `farmhash@5.0.0` fingerprint64 |
 | `fingerprint32` | `farmhash@5.0.0` fingerprint32 |
-| `legacyHash64` | `farmhash@3.3.1` hash64 |
-| `legacyHash32` | `farmhash@3.3.1` hash32 |
+| `legacyHash64_arm` | `farmhash@3.3.1` hash64 on ARM64 |
+| `legacyHash64_x86` | `farmhash@3.3.1` hash64 on x86_64 (<512 bytes) |
+| `legacyHash32_arm` | `farmhash@3.3.1` hash32 on ARM64 |
+| `legacyHash32_x86` | `farmhash@3.3.1` hash32 on x86_64 (<512 bytes) |
 
 ## Performance
 
@@ -87,8 +107,8 @@ Benchmarked on Apple M1:
 |----------|----------|-----------|------|
 | `fingerprint32` | 251 ns/op | 903 ns/op | 9 µs/op |
 | `fingerprint64` | 843 ns/op | 7 µs/op | 65 µs/op |
-| `legacyHash32` | 302 ns/op | 974 ns/op | 9 µs/op |
-| `legacyHash64` | 1.1 µs/op | 6.8 µs/op | 58 µs/op |
+| `legacyHash32_arm` | 302 ns/op | 974 ns/op | 9 µs/op |
+| `legacyHash64_arm` | 1.1 µs/op | 6.8 µs/op | 58 µs/op |
 
 32-bit functions are faster because they use native `number` operations. 64-bit functions use `BigInt` which has more overhead.
 

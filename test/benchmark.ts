@@ -4,8 +4,10 @@
 
 import crypto from "crypto";
 import {
-  legacyHash64,
-  legacyHash32,
+  legacyHash64_arm,
+  legacyHash64_x86,
+  legacyHash32_arm,
+  legacyHash32_x86,
   fingerprint64,
   fingerprint32
 } from "../src/index.js";
@@ -65,28 +67,40 @@ function formatNs(ns: number): string {
 
 function runBenchmarks(label: string, data: string[], iterations: number) {
   console.log(`\n${label} (~${data[0].length} bytes, ${iterations.toLocaleString()} iterations)`);
-  console.log("-".repeat(80));
-  console.log("  Function         │ JS (pure)          │ Native (C++)       │ JS % of Native");
-  console.log("-".repeat(80));
+  console.log("-".repeat(90));
+  console.log("  Function            │ JS (pure)          │ Native (C++)       │ JS % of Native");
+  console.log("-".repeat(90));
 
   let idx = 0;
   const nextInput = () => data[idx++ % data.length];
 
-  // Hash64
+  // Legacy Hash64 ARM
   idx = 0;
-  const jsLegacy64 = benchmark("JS legacyHash64", () => legacyHash64(nextInput()), iterations);
+  const jsLegacy64arm = benchmark("JS legacyHash64_arm", () => legacyHash64_arm(nextInput()), iterations);
   idx = 0;
   const nativeLegacy64 = benchmark("Native hash64 (v3)", () => legacyFarmhash.hash64(nextInput()), iterations);
-  const ratio64legacy = (jsLegacy64.opsPerSec / nativeLegacy64.opsPerSec * 100).toFixed(1);
-  console.log(`  legacyHash64     │ ${formatNs(jsLegacy64.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeLegacy64.nsPerOp).padStart(8)}/op       │ ${ratio64legacy.padStart(5)}%`);
+  const ratio64arm = (jsLegacy64arm.opsPerSec / nativeLegacy64.opsPerSec * 100).toFixed(1);
+  console.log(`  legacyHash64_arm    │ ${formatNs(jsLegacy64arm.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeLegacy64.nsPerOp).padStart(8)}/op       │ ${ratio64arm.padStart(5)}%`);
 
-  // Hash32
+  // Legacy Hash64 x86
   idx = 0;
-  const jsLegacy32 = benchmark("JS legacyHash32", () => legacyHash32(nextInput()), iterations);
+  const jsLegacy64x86 = benchmark("JS legacyHash64_x86", () => legacyHash64_x86(nextInput()), iterations);
+  const ratio64x86 = (jsLegacy64x86.opsPerSec / nativeLegacy64.opsPerSec * 100).toFixed(1);
+  console.log(`  legacyHash64_x86    │ ${formatNs(jsLegacy64x86.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeLegacy64.nsPerOp).padStart(8)}/op       │ ${ratio64x86.padStart(5)}%`);
+
+  // Legacy Hash32 ARM
+  idx = 0;
+  const jsLegacy32arm = benchmark("JS legacyHash32_arm", () => legacyHash32_arm(nextInput()), iterations);
   idx = 0;
   const nativeLegacy32 = benchmark("Native hash32 (v3)", () => legacyFarmhash.hash32(nextInput()), iterations);
-  const ratio32legacy = (jsLegacy32.opsPerSec / nativeLegacy32.opsPerSec * 100).toFixed(1);
-  console.log(`  legacyHash32     │ ${formatNs(jsLegacy32.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeLegacy32.nsPerOp).padStart(8)}/op       │ ${ratio32legacy.padStart(5)}%`);
+  const ratio32arm = (jsLegacy32arm.opsPerSec / nativeLegacy32.opsPerSec * 100).toFixed(1);
+  console.log(`  legacyHash32_arm    │ ${formatNs(jsLegacy32arm.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeLegacy32.nsPerOp).padStart(8)}/op       │ ${ratio32arm.padStart(5)}%`);
+
+  // Legacy Hash32 x86
+  idx = 0;
+  const jsLegacy32x86 = benchmark("JS legacyHash32_x86", () => legacyHash32_x86(nextInput()), iterations);
+  const ratio32x86 = (jsLegacy32x86.opsPerSec / nativeLegacy32.opsPerSec * 100).toFixed(1);
+  console.log(`  legacyHash32_x86    │ ${formatNs(jsLegacy32x86.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeLegacy32.nsPerOp).padStart(8)}/op       │ ${ratio32x86.padStart(5)}%`);
 
   // Fingerprint64
   idx = 0;
@@ -94,7 +108,7 @@ function runBenchmarks(label: string, data: string[], iterations: number) {
   idx = 0;
   const nativeFp64 = benchmark("Native fp64 (v5)", () => modernFarmhash.fingerprint64(nextInput()), iterations);
   const ratioFp64 = (jsFp64.opsPerSec / nativeFp64.opsPerSec * 100).toFixed(1);
-  console.log(`  fingerprint64    │ ${formatNs(jsFp64.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeFp64.nsPerOp).padStart(8)}/op       │ ${ratioFp64.padStart(5)}%`);
+  console.log(`  fingerprint64       │ ${formatNs(jsFp64.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeFp64.nsPerOp).padStart(8)}/op       │ ${ratioFp64.padStart(5)}%`);
 
   // Fingerprint32
   idx = 0;
@@ -102,13 +116,13 @@ function runBenchmarks(label: string, data: string[], iterations: number) {
   idx = 0;
   const nativeFp32 = benchmark("Native fp32 (v5)", () => modernFarmhash.fingerprint32(nextInput()), iterations);
   const ratioFp32 = (jsFp32.opsPerSec / nativeFp32.opsPerSec * 100).toFixed(1);
-  console.log(`  fingerprint32    │ ${formatNs(jsFp32.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeFp32.nsPerOp).padStart(8)}/op       │ ${ratioFp32.padStart(5)}%`);
+  console.log(`  fingerprint32       │ ${formatNs(jsFp32.nsPerOp).padStart(8)}/op       │ ${formatNs(nativeFp32.nsPerOp).padStart(8)}/op       │ ${ratioFp32.padStart(5)}%`);
 }
 
-console.log("=".repeat(70));
+console.log("=".repeat(90));
 console.log("farmhashjs Performance Benchmark");
 console.log("Pure JS vs Native (C++ via N-API)");
-console.log("=".repeat(70));
+console.log("=".repeat(90));
 
 console.log("\nGenerating test data...");
 const { small, medium, large } = generateTestData();
@@ -117,6 +131,7 @@ runBenchmarks("Small strings", small, ITERATIONS);
 runBenchmarks("Medium strings", medium, ITERATIONS);
 runBenchmarks("Large strings", large, Math.floor(ITERATIONS / 10));
 
-console.log("\n" + "=".repeat(70));
+console.log("\n" + "=".repeat(90));
 console.log("Note: Percentage shows JS performance relative to native (higher = better)");
-console.log("=".repeat(70));
+console.log("      For large strings, legacyHash64_x86 uses SIMD simulation (farmhashte)");
+console.log("=".repeat(90));

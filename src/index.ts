@@ -371,6 +371,340 @@ function xoHash64(buf: Buffer, len: number): bigint {
 }
 
 /**************************************************************************
+ * FARMHASH TE (x86_64 SIMD simulation for strings ≥512 bytes)
+ * 
+ * This simulates the SSE4.1 SIMD operations used in farmhashte::Hash64Long
+ * using pairs of 64-bit bigints to represent 128-bit values.
+ ***************************************************************************/
+
+type M128i = [bigint, bigint];
+
+function m128iFromSeed(seed: bigint): M128i {
+  return [seed & 0xFFFFFFFFFFFFFFFFn, 0n];
+}
+
+function m128iSet1Epi32(val: bigint): M128i {
+  const v32 = val & 0xFFFFFFFFn;
+  const packed = (v32 << 32n) | v32;
+  return [packed, packed];
+}
+
+function fetch128(buf: Buffer, offset: number): M128i {
+  return [
+    buf.readBigUInt64LE(offset),
+    buf.readBigUInt64LE(offset + 8)
+  ];
+}
+
+function add128(x: M128i, y: M128i): M128i {
+  return [
+    (x[0] + y[0]) & 0xFFFFFFFFFFFFFFFFn,
+    (x[1] + y[1]) & 0xFFFFFFFFFFFFFFFFn
+  ];
+}
+
+function xor128(x: M128i, y: M128i): M128i {
+  return [x[0] ^ y[0], x[1] ^ y[1]];
+}
+
+function mul128(x: M128i, y: M128i): M128i {
+  const x0 = x[0] & 0xFFFFFFFFn;
+  const x1 = (x[0] >> 32n) & 0xFFFFFFFFn;
+  const x2 = x[1] & 0xFFFFFFFFn;
+  const x3 = (x[1] >> 32n) & 0xFFFFFFFFn;
+  const y0 = y[0] & 0xFFFFFFFFn;
+  const y1 = (y[0] >> 32n) & 0xFFFFFFFFn;
+  const y2 = y[1] & 0xFFFFFFFFn;
+  const y3 = (y[1] >> 32n) & 0xFFFFFFFFn;
+  const r0 = (x0 * y0) & 0xFFFFFFFFn;
+  const r1 = (x1 * y1) & 0xFFFFFFFFn;
+  const r2 = (x2 * y2) & 0xFFFFFFFFn;
+  const r3 = (x3 * y3) & 0xFFFFFFFFn;
+  return [
+    (r1 << 32n) | r0,
+    (r3 << 32n) | r2
+  ];
+}
+
+function shuf128(mask: M128i, data: M128i): M128i {
+  const bytes: number[] = [];
+  bytes.push(Number(data[0] & 0xFFn));
+  bytes.push(Number((data[0] >> 8n) & 0xFFn));
+  bytes.push(Number((data[0] >> 16n) & 0xFFn));
+  bytes.push(Number((data[0] >> 24n) & 0xFFn));
+  bytes.push(Number((data[0] >> 32n) & 0xFFn));
+  bytes.push(Number((data[0] >> 40n) & 0xFFn));
+  bytes.push(Number((data[0] >> 48n) & 0xFFn));
+  bytes.push(Number((data[0] >> 56n) & 0xFFn));
+  bytes.push(Number(data[1] & 0xFFn));
+  bytes.push(Number((data[1] >> 8n) & 0xFFn));
+  bytes.push(Number((data[1] >> 16n) & 0xFFn));
+  bytes.push(Number((data[1] >> 24n) & 0xFFn));
+  bytes.push(Number((data[1] >> 32n) & 0xFFn));
+  bytes.push(Number((data[1] >> 40n) & 0xFFn));
+  bytes.push(Number((data[1] >> 48n) & 0xFFn));
+  bytes.push(Number((data[1] >> 56n) & 0xFFn));
+
+  const maskBytes: number[] = [];
+  maskBytes.push(Number(mask[0] & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 8n) & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 16n) & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 24n) & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 32n) & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 40n) & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 48n) & 0xFFn));
+  maskBytes.push(Number((mask[0] >> 56n) & 0xFFn));
+  maskBytes.push(Number(mask[1] & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 8n) & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 16n) & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 24n) & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 32n) & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 40n) & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 48n) & 0xFFn));
+  maskBytes.push(Number((mask[1] >> 56n) & 0xFFn));
+
+  const result: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    const idx = maskBytes[i] & 0x0F;
+    result.push(bytes[idx]);
+  }
+
+  let lo = 0n;
+  let hi = 0n;
+  for (let i = 0; i < 8; i++) {
+    lo |= BigInt(result[i]) << BigInt(i * 8);
+    hi |= BigInt(result[i + 8]) << BigInt(i * 8);
+  }
+  return [lo, hi];
+}
+
+function shuffle32(x: M128i, imm8: number): M128i {
+  const dwords: bigint[] = [
+    x[0] & 0xFFFFFFFFn,
+    (x[0] >> 32n) & 0xFFFFFFFFn,
+    x[1] & 0xFFFFFFFFn,
+    (x[1] >> 32n) & 0xFFFFFFFFn
+  ];
+  const r0 = dwords[imm8 & 3];
+  const r1 = dwords[(imm8 >> 2) & 3];
+  const r2 = dwords[(imm8 >> 4) & 3];
+  const r3 = dwords[(imm8 >> 6) & 3];
+  return [
+    (r1 << 32n) | r0,
+    (r3 << 32n) | r2
+  ];
+}
+
+function m128iToBuffer(vals: M128i[]): Buffer {
+  const buf = Buffer.alloc(vals.length * 16);
+  for (let i = 0; i < vals.length; i++) {
+    buf.writeBigUInt64LE(vals[i][0], i * 16);
+    buf.writeBigUInt64LE(vals[i][1], i * 16 + 8);
+  }
+  return buf;
+}
+
+function teHash64Long(buf: Buffer, len: number, seed0: bigint, seed1: bigint): bigint {
+  const kShuf: M128i = [0x0c020e0d00070301n, 0x040b0a05080f0609n];
+  const kMult: M128i = [0x343e33edcc9e2d51n, 0xbdd633394554fa03n];
+
+  const seed2 = ((seed0 + 113n) * (seed1 + 9n)) & 0xFFFFFFFFFFFFFFFFn;
+  const seed3 = ((rotate64(seed0, 23) + 27n) * (rotate64(seed1, 30) + 111n)) & 0xFFFFFFFFFFFFFFFFn;
+
+  let d0 = m128iFromSeed(seed0);
+  let d1 = m128iFromSeed(seed1);
+  let d2 = shuf128(kShuf, d0);
+  let d3 = shuf128(kShuf, d1);
+  let d4 = xor128(d0, d1);
+  let d5 = xor128(d1, d2);
+  let d6 = xor128(d2, d4);
+  let d7 = m128iSet1Epi32(seed2 >> 32n);
+  let d8 = mul128(kMult, d2);
+  let d9 = m128iSet1Epi32(seed3 >> 32n);
+  let d10 = m128iSet1Epi32(seed3 & 0xFFFFFFFFn);
+  let d11 = add128(d2, m128iSet1Epi32(seed2 & 0xFFFFFFFFn));
+
+  const endOffset = len & ~255;
+  let offset = 0;
+
+  while (offset < endOffset) {
+    let z: M128i;
+
+    z = fetch128(buf, offset);
+    d0 = add128(d0, z);
+    d1 = shuf128(kShuf, d1);
+    d2 = xor128(d2, d0);
+    d4 = xor128(d4, z);
+    d4 = xor128(d4, d1);
+    [d0, d6] = [d6, d0];
+
+    z = fetch128(buf, offset + 16);
+    d5 = add128(d5, z);
+    d6 = shuf128(kShuf, d6);
+    d8 = shuf128(kShuf, d8);
+    d7 = xor128(d7, d5);
+    d0 = xor128(d0, z);
+    d0 = xor128(d0, d6);
+    [d5, d11] = [d11, d5];
+
+    z = fetch128(buf, offset + 32);
+    d1 = add128(d1, z);
+    d2 = shuf128(kShuf, d2);
+    d4 = shuf128(kShuf, d4);
+    d5 = xor128(d5, z);
+    d5 = xor128(d5, d2);
+    [d10, d4] = [d4, d10];
+
+    z = fetch128(buf, offset + 48);
+    d6 = add128(d6, z);
+    d7 = shuf128(kShuf, d7);
+    d0 = shuf128(kShuf, d0);
+    d8 = xor128(d8, d6);
+    d1 = xor128(d1, z);
+    d1 = add128(d1, d7);
+
+    z = fetch128(buf, offset + 64);
+    d2 = add128(d2, z);
+    d5 = shuf128(kShuf, d5);
+    d4 = add128(d4, d2);
+    d6 = xor128(d6, z);
+    d6 = xor128(d6, d11);
+    [d8, d2] = [d2, d8];
+
+    z = fetch128(buf, offset + 80);
+    d7 = xor128(d7, z);
+    d8 = shuf128(kShuf, d8);
+    d1 = shuf128(kShuf, d1);
+    d0 = add128(d0, d7);
+    d2 = add128(d2, z);
+    d2 = add128(d2, d8);
+    [d1, d7] = [d7, d1];
+
+    z = fetch128(buf, offset + 96);
+    d4 = shuf128(kShuf, d4);
+    d6 = shuf128(kShuf, d6);
+    d8 = mul128(kMult, d8);
+    d5 = xor128(d5, d11);
+    d7 = xor128(d7, z);
+    d7 = add128(d7, d4);
+    [d6, d0] = [d0, d6];
+
+    z = fetch128(buf, offset + 112);
+    d8 = add128(d8, z);
+    d0 = shuf128(kShuf, d0);
+    d2 = shuf128(kShuf, d2);
+    d1 = xor128(d1, d8);
+    d10 = xor128(d10, z);
+    d10 = xor128(d10, d0);
+    [d11, d5] = [d5, d11];
+
+    z = fetch128(buf, offset + 128);
+    d4 = add128(d4, z);
+    d5 = shuf128(kShuf, d5);
+    d7 = shuf128(kShuf, d7);
+    d6 = add128(d6, d4);
+    d8 = xor128(d8, z);
+    d8 = xor128(d8, d5);
+    [d4, d10] = [d10, d4];
+
+    z = fetch128(buf, offset + 144);
+    d0 = add128(d0, z);
+    d1 = shuf128(kShuf, d1);
+    d2 = add128(d2, d0);
+    d4 = xor128(d4, z);
+    d4 = xor128(d4, d1);
+
+    z = fetch128(buf, offset + 160);
+    d5 = add128(d5, z);
+    d6 = shuf128(kShuf, d6);
+    d8 = shuf128(kShuf, d8);
+    d7 = xor128(d7, d5);
+    d0 = xor128(d0, z);
+    d0 = xor128(d0, d6);
+    [d2, d8] = [d8, d2];
+
+    z = fetch128(buf, offset + 176);
+    d1 = add128(d1, z);
+    d2 = shuf128(kShuf, d2);
+    d4 = shuf128(kShuf, d4);
+    d5 = mul128(kMult, d5);
+    d5 = xor128(d5, z);
+    d5 = xor128(d5, d2);
+    [d7, d1] = [d1, d7];
+
+    z = fetch128(buf, offset + 192);
+    d6 = add128(d6, z);
+    d7 = shuf128(kShuf, d7);
+    d0 = shuf128(kShuf, d0);
+    d8 = add128(d8, d6);
+    d1 = xor128(d1, z);
+    d1 = xor128(d1, d7);
+    [d0, d6] = [d6, d0];
+
+    z = fetch128(buf, offset + 208);
+    d2 = add128(d2, z);
+    d5 = shuf128(kShuf, d5);
+    d4 = xor128(d4, d2);
+    d6 = xor128(d6, z);
+    d6 = xor128(d6, d9);
+    [d5, d11] = [d11, d5];
+
+    z = fetch128(buf, offset + 224);
+    d7 = add128(d7, z);
+    d8 = shuf128(kShuf, d8);
+    d1 = shuf128(kShuf, d1);
+    d0 = xor128(d0, d7);
+    d2 = xor128(d2, z);
+    d2 = xor128(d2, d8);
+    [d10, d4] = [d4, d10];
+
+    z = fetch128(buf, offset + 240);
+    d3 = add128(d3, z);
+    d4 = shuf128(kShuf, d4);
+    d6 = shuf128(kShuf, d6);
+    d7 = mul128(kMult, d7);
+    d5 = add128(d5, d3);
+    d7 = xor128(d7, z);
+    d7 = xor128(d7, d4);
+    [d3, d9] = [d9, d3];
+
+    offset += 256;
+  }
+
+  d6 = add128(mul128(kMult, d6), m128iFromSeed(BigInt(len)));
+
+  if (len % 256 !== 0) {
+    const imm8 = (0 << 6) + (3 << 4) + (2 << 2) + (1 << 0);
+    d7 = add128(shuffle32(d8, imm8), d7);
+    d8 = add128(mul128(kMult, d8), m128iFromSeed(xoHash64(buf.subarray(offset), len % 256)));
+  }
+
+  d0 = mul128(kMult, shuf128(kShuf, mul128(kMult, d0)));
+  d3 = mul128(kMult, shuf128(kShuf, mul128(kMult, d3)));
+  d9 = mul128(kMult, shuf128(kShuf, mul128(kMult, d9)));
+  d1 = mul128(kMult, shuf128(kShuf, mul128(kMult, d1)));
+  d0 = add128(d11, d0);
+  d3 = xor128(d7, d3);
+  d9 = add128(d8, d9);
+  d1 = add128(d10, d1);
+  d4 = add128(d3, d4);
+  d5 = add128(d9, d5);
+  d6 = xor128(d1, d6);
+  d2 = add128(d0, d2);
+
+  const t: M128i[] = [d0, d3, d9, d1, d4, d5, d6, d2];
+  const tBuf = m128iToBuffer(t);
+  return xoHash64(tBuf, 128);
+}
+
+function teHash64(buf: Buffer, len: number): bigint {
+  if (len >= 512) {
+    return teHash64Long(buf, len, k2, k1);
+  }
+  return xoHash64(buf, len);
+}
+
+/**************************************************************************
  * FARMHASH NA - HashLen33to64 (used by fingerprint64)
  ***************************************************************************/
 
@@ -527,39 +861,83 @@ function debugTweak32(x: number): number {
 
 /**************************************************************************
  * PUBLIC API - LEGACY (with DebugTweak, compatible with farmhash v3.3.1)
+ * 
+ * Note: farmhash v3.3.1 produces different results on ARM64 vs x86_64 for:
+ * - hash64: Different for strings ≥512 bytes
+ * - hash32: Different for ALL strings (different algorithms)
  ***************************************************************************/
 
 /**
- * Compute a 64-bit hash compatible with farmhash v3.3.1 hash64()
+ * Compute a 64-bit hash compatible with farmhash v3.3.1 hash64() on ARM64
+ * Also matches x86_64 for strings <512 bytes
  * @param input - The string to hash
  * @returns The hash as a decimal string
  */
-export function legacyHash64(input: string): string {
+export function legacyHash64_arm(input: string): string {
   const buf = Buffer.from(input);
   const rawHash = xoHash64(buf, buf.length);
   return debugTweak64(rawHash).toString();
 }
 
 /**
- * Compute a 64-bit hash compatible with farmhash v3.3.1 hash64()
+ * Compute a 64-bit hash compatible with farmhash v3.3.1 hash64() on x86_64
+ * Uses farmhashte algorithm (SIMD simulation for ≥512 bytes)
+ * @param input - The string to hash
+ * @returns The hash as a decimal string
+ */
+export function legacyHash64_x86(input: string): string {
+  const buf = Buffer.from(input);
+  const rawHash = teHash64(buf, buf.length);
+  return debugTweak64(rawHash).toString();
+}
+
+/**
+ * Compute a 64-bit hash compatible with farmhash v3.3.1 hash64() on ARM64
+ * Also matches x86_64 for strings <512 bytes
  * @param input - The string to hash
  * @returns The hash as a BigInt
  */
-export function legacyHash64BigInt(input: string): bigint {
+export function legacyHash64BigInt_arm(input: string): bigint {
   const buf = Buffer.from(input);
   const rawHash = xoHash64(buf, buf.length);
   return debugTweak64(rawHash);
 }
 
 /**
- * Compute a 32-bit hash compatible with farmhash v3.3.1 hash32()
+ * Compute a 64-bit hash compatible with farmhash v3.3.1 hash64() on x86_64
+ * Uses farmhashte algorithm (SIMD simulation for ≥512 bytes)
+ * @param input - The string to hash
+ * @returns The hash as a BigInt
+ */
+export function legacyHash64BigInt_x86(input: string): bigint {
+  const buf = Buffer.from(input);
+  const rawHash = teHash64(buf, buf.length);
+  return debugTweak64(rawHash);
+}
+
+/**
+ * Compute a 32-bit hash compatible with farmhash v3.3.1 hash32() on ARM64
+ * Uses farmhashmk algorithm
  * @param input - The string to hash
  * @returns The hash as a number
  */
-export function legacyHash32(input: string): number {
+export function legacyHash32_arm(input: string): number {
   const buf = Buffer.from(input);
   const rawHash = mkHash32(buf, buf.length);
   return debugTweak32(rawHash);
+}
+
+/**
+ * Compute a 32-bit hash compatible with farmhash v3.3.1 hash32() on x86_64
+ * Uses lower32(farmhashte::Hash64) algorithm (SIMD simulation for ≥512 bytes)
+ * @param input - The string to hash
+ * @returns The hash as a number
+ */
+export function legacyHash32_x86(input: string): number {
+  const buf = Buffer.from(input);
+  const rawHash64 = teHash64(buf, buf.length);
+  const lower32 = Number(rawHash64 & 0xFFFFFFFFn);
+  return debugTweak32(lower32);
 }
 
 /**************************************************************************
@@ -617,10 +995,13 @@ export const hash32 = fingerprint32;
  ***************************************************************************/
 
 export default {
-  // Legacy (farmhash v3.3.1 compatible)
-  legacyHash64,
-  legacyHash64BigInt,
-  legacyHash32,
+  // Legacy (farmhash v3.3.1 compatible) - explicit architecture
+  legacyHash64_arm,
+  legacyHash64_x86,
+  legacyHash64BigInt_arm,
+  legacyHash64BigInt_x86,
+  legacyHash32_arm,
+  legacyHash32_x86,
   // Modern stable fingerprints
   fingerprint64,
   fingerprint64BigInt,

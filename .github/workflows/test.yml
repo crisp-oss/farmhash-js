@@ -7,7 +7,8 @@ on:
     branches: [master, main]
 
 jobs:
-  test:
+  test-x86:
+    name: Test (x86_64, Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
 
     strategy:
@@ -32,7 +33,34 @@ jobs:
       - name: Run tests
         run: npm test
 
+  test-arm:
+    name: Test (ARM64, Node ${{ matrix.node-version }})
+    runs-on: ubuntu-24.04-arm
+
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
   lint:
+    name: Type Check
     runs-on: ubuntu-latest
 
     steps:
