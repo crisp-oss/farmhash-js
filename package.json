@@ -1,6 +1,6 @@
 {
   "name": "farmhashjs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pure JavaScript implementation of Google's FarmHash - compatible with farmhash v3.x and v5.x",
   "type": "module",
   "main": "./dist/index.js",
