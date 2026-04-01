@@ -1,0 +1,54 @@
+{
+  "name": "farmhashjs",
+  "version": "1.0.0",
+  "description": "Pure JavaScript implementation of Google's FarmHash - compatible with farmhash v3.x and v5.x",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx/esm test/index.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "farmhash",
+    "hash",
+    "fingerprint",
+    "hash64",
+    "hash32",
+    "cityhash",
+    "murmurhash",
+    "google"
+  ],
+  "author": "Crisp IM SAS",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crisp-oss/farmhash-js.git"
+  },
+  "homepage": "https://github.com/crisp-oss/farmhash-js#readme",
+  "bugs": {
+    "url": "https://github.com/crisp-oss/farmhash-js/issues"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "farmhash": "3.3.1",
+    "farmhash-modern": "npm:farmhash@5.0.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}
