@@ -19,6 +19,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --import tsx/esm test/index.test.ts",
+    "benchmark": "node --import tsx/esm test/benchmark.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
