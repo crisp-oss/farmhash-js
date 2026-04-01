@@ -1,6 +1,12 @@
 # farmhashjs
 
-Pure JavaScript implementation of Google's [FarmHash](https://github.com/google/farmhash) algorithm. No native dependencies, works in Node.js and browsers.
+[![Test and Build](https://github.com/crisp-oss/farmhash-js/actions/workflows/test.yml/badge.svg)](https://github.com/crisp-oss/farmhash-js/actions/workflows/test.yml)
+[![NPM](https://img.shields.io/npm/v/farmhashjs.svg)](https://www.npmjs.com/package/farmhashjs)
+[![Downloads](https://img.shields.io/npm/dm/farmhashjs.svg)](https://www.npmjs.com/package/farmhashjs)
+
+**Pure JavaScript implementation of Google's [FarmHash](https://github.com/google/farmhash) algorithm. No native dependencies, works in Node.js and browsers.**
+
+**😘 Maintainer**: [@baptistejamin](https://github.com/baptistejamin)
 
 ## Why?
 
